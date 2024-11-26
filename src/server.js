@@ -47,6 +47,10 @@ const broadcast = (message, targetUserId) => {
 }
 
 // REST endpoints
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'API is running' })
+})
+
 app.post('/api/save', async (req, res) => {
   try {
     const newData = new DataModel(req.body)
