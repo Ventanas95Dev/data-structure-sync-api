@@ -1,6 +1,8 @@
 require('dotenv').config()
 const WebSocket = require('ws')
+const express = require('express')
 const mongoose = require('mongoose')
+const cors = require('cors')
 const DataModel = require('./models/DataModel')
 
 // Connect to MongoDB
@@ -16,28 +18,77 @@ mongoose
     console.error('MongoDB connection error:', error)
   })
 
+// Express setup
+const app = express()
+app.use(cors())
+app.use(express.json())
+
 const port = process.env.PORT || 3001
-const wss = new WebSocket.Server({
-  port,
-  perMessageDeflate: {
-    zlibDeflateOptions: {
-      // See zlib defaults.
-      chunkSize: 1024,
-      memLevel: 7,
-      level: 3,
-    },
-    zlibInflateOptions: {
-      chunkSize: 10 * 1024,
-    },
-    // Other options settable:
-    clientNoContextTakeover: true, // Defaults to negotiated value.
-    serverNoContextTakeover: true, // Defaults to negotiated value.
-    serverMaxWindowBits: 10, // Defaults to negotiated value.
-    // Below options specified as default values.
-    concurrencyLimit: 10, // Limits zlib concurrency for perf.
-    threshold: 1024, // Size (in bytes) below which messages
-    // should not be compressed if context takeover is disabled.
-  },
+const wsPort = process.env.WS_PORT || 3002
+
+// Create HTTP server for REST endpoints
+app.listen(port, () => {
+  console.log(`REST server is running on port ${port}`)
+})
+
+// WebSocket server setup
+const wss = new WebSocket.Server({ port: wsPort })
+
+// Broadcast to specific userId
+const broadcast = (message, targetUserId) => {
+  wss.clients.forEach((client) => {
+    if (
+      client.readyState === WebSocket.OPEN &&
+      client.userId === targetUserId
+    ) {
+      client.send(JSON.stringify(message))
+    }
+  })
+}
+
+// REST endpoints
+app.post('/api/save', async (req, res) => {
+  try {
+    const newData = new DataModel(req.body)
+    const savedData = await newData.save()
+    broadcast(
+      {
+        action: 'save_notification',
+        status: 'success',
+        data: savedData,
+      },
+      savedData.userId,
+    )
+    res.status(201).json(savedData)
+  } catch (error) {
+    console.error('Save error:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.put('/api/update/:id', async (req, res) => {
+  try {
+    const updatedData = await DataModel.findByIdAndUpdate(
+      req.params.id,
+      { ...req.body, savedDate: Date.now() },
+      { new: true },
+    )
+    if (!updatedData) {
+      return res.status(404).json({ error: 'Document not found' })
+    }
+    broadcast(
+      {
+        action: 'update_notification',
+        status: 'success',
+        data: updatedData,
+      },
+      updatedData.userId,
+    )
+    res.json(updatedData)
+  } catch (error) {
+    console.error('Update error:', error)
+    res.status(500).json({ error: error.message })
+  }
 })
 
 wss.on('connection', (ws) => {
@@ -48,53 +99,45 @@ wss.on('connection', (ws) => {
       const { action, payload } = JSON.parse(message)
 
       switch (action) {
-        case 'save':
-          const newData = new DataModel(payload)
-          const savedData = await newData.save()
+        case 'init': {
+          // Store userId when client connects
+          if (!payload.userId) {
+            ws.send(
+              JSON.stringify({
+                action: 'error',
+                status: 'error',
+                message: 'userId is required for initialization',
+              }),
+            )
+            ws.close()
+            return
+          }
+          ws.userId = payload.userId
           ws.send(
             JSON.stringify({
-              action: 'save_response',
+              action: 'init_response',
               status: 'success',
-              data: savedData,
+              message: 'Connection initialized',
             }),
           )
           break
+        }
 
-        case 'update':
-          const { id, ...updateData } = payload
-          const updatedData = await DataModel.findByIdAndUpdate(
-            id,
-            {
-              ...updateData,
-              savedDate: Date.now(),
-            },
-            { new: true },
-          )
-
-          if (!updatedData) {
+        case 'get': {
+          // Only allow querying for own userId
+          const { userId, storyblokId } = payload
+          if (userId !== ws.userId) {
             ws.send(
               JSON.stringify({
-                action: 'update_response',
+                action: 'error',
                 status: 'error',
-                message: 'Document not found',
+                message: 'Unauthorized: Can only query your own userId',
               }),
             )
             break
           }
 
-          ws.send(
-            JSON.stringify({
-              action: 'update_response',
-              status: 'success',
-              data: updatedData,
-            }),
-          )
-          break
-
-        case 'get':
-          const { userId, storyblokId } = payload
-          const query = {}
-          if (userId) query.userId = userId
+          const query = { userId }
           if (storyblokId) query.storyblokId = storyblokId
 
           const data = await DataModel.find(query)
@@ -106,8 +149,9 @@ wss.on('connection', (ws) => {
             }),
           )
           break
+        }
 
-        default:
+        default: {
           ws.send(
             JSON.stringify({
               action: 'error',
@@ -115,6 +159,8 @@ wss.on('connection', (ws) => {
               message: 'Invalid action',
             }),
           )
+          break
+        }
       }
     } catch (error) {
       console.error('Error:', error)
@@ -145,4 +191,4 @@ wss.on('connection', (ws) => {
   })
 })
 
-console.log(`WebSocket server is running on port ${port}`)
+console.log(`WebSocket server is running on port ${wsPort}`)

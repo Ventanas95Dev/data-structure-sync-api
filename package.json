@@ -10,11 +10,16 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "cors": "^2.8.5",
     "dotenv": "^16.3.1",
+    "express": "^4.21.1",
     "mongoose": "^7.4.1",
     "ws": "^8.13.0"
   },
   "devDependencies": {
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.2.1",
     "nodemon": "^3.0.1",
     "prettier": "^3.4.0"
   }
