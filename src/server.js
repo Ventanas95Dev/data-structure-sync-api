@@ -34,12 +34,18 @@ const port = process.env.PORT || 3001
 const wsPort = process.env.WS_PORT || 3002
 
 // Create HTTP server for REST endpoints
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`REST server is running on port ${port}`)
 })
 
 // WebSocket server setup
-const wss = new WebSocket.Server({ port: wsPort })
+const wss = new WebSocket.Server({
+  server, // Attach to the same HTTP server
+  verifyClient: (info) => {
+    // Accept all origins
+    return true
+  },
+})
 
 // Broadcast to specific userId
 const broadcast = (message, targetUserId) => {
