@@ -20,7 +20,14 @@ mongoose
 
 // Express setup
 const app = express()
-app.use(cors())
+
+// CORS configuration
+app.use(
+  cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  }),
+)
 app.use(express.json())
 
 const port = process.env.PORT || 3001
